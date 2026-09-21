@@ -1,333 +1,196 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useFinancial } from '../context/FinancialContext';
-import { useAuth } from '../context/AuthContext';
-import { saveMonthlyBudget, getMonthlyBudget } from '../firebase/budgetService';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
-import { Modal } from '../components/common/Modal';
-
-const INITIAL_DEFAULT_CATEGORIES = [
-  'Alimentação',
-  'Casa',
-  'Transporte',
-  'Saúde',
-  'Lazer',
-  'Assinaturas',
-  'Outros'
-];
 
 export default function BudgetPage() {
-  const { user } = useAuth();
-  const { metrics, history = [], refreshData } = useFinancial();
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const { budget, updateBudgetSettings, metrics } = useFinancial();
 
-  const [plannedIncome, setPlannedIncome] = useState('');
-  const [categoriesList, setCategoriesList] = useState(INITIAL_DEFAULT_CATEGORIES);
-  const [categoriesBudget, setCategoriesBudget] = useState({});
+  const [income, setIncome] = useState(budget?.income || '');
+  const [expenseList, setExpenseList] = useState(budget?.expenseList || [
+    { id: 1, name: 'Aluguel / Condomínio', amount: 1200, category: 'Moradia' },
+    { id: 2, name: 'Supermercado / Alimentação', amount: 800, category: 'Alimentação' },
+    { id: 3, name: 'Energia & Água', amount: 250, category: 'Contas' },
+  ]);
 
-  // Estado para Modal de Nova Categoria
-  const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-
-  // Carregar orçamento do Firestore
-  useEffect(() => {
-    async function loadBudget() {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const data = await getMonthlyBudget(user.uid);
-        setPlannedIncome(data.plannedIncome || '');
-        
-        if (data.categories) {
-          // Unir categorias salvas no Firestore com a lista padrão
-          const loadedCategoryNames = Object.keys(data.categories);
-          const mergedList = Array.from(new Set([...INITIAL_DEFAULT_CATEGORIES, ...loadedCategoryNames]));
-          
-          setCategoriesList(mergedList);
-          setCategoriesBudget(data.categories);
-        } else {
-          // Inicializar categorias vazias
-          const initialMap = INITIAL_DEFAULT_CATEGORIES.reduce((acc, cat) => ({ ...acc, [cat]: '' }), {});
-          setCategoriesBudget(initialMap);
-        }
-      } catch (err) {
-        console.error("Erro ao carregar orçamento:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadBudget();
-  }, [user]);
-
-  // Adicionar Nova Categoria Personalizada
-  const handleAddCategory = (e) => {
-    e.preventDefault();
-    const trimmed = newCategoryName.trim();
-    if (!trimmed) return;
-
-    if (categoriesList.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
-      alert("Esta categoria já existe!");
-      return;
-    }
-
-    setCategoriesList((prev) => [...prev, trimmed]);
-    setCategoriesBudget((prev) => ({ ...prev, [trimmed]: '' }));
-    setNewCategoryName('');
-    setIsNewCategoryModalOpen(false);
-  };
-
-  // Remover Categoria Personalizada
-  const handleRemoveCategory = (catName) => {
-    if (INITIAL_DEFAULT_CATEGORIES.includes(catName)) {
-      alert("Categorias padrão do sistema não podem ser removidas.");
-      return;
-    }
-
-    if (confirm(`Deseja remover a categoria "${catName}" do planejamento?`)) {
-      setCategoriesList((prev) => prev.filter((c) => c !== catName));
-      setCategoriesBudget((prev) => {
-        const copy = { ...prev };
-        delete copy[catName];
-        return copy;
-      });
-    }
-  };
-
-  // Salvar Orçamento no Firestore
-  const handleSaveBudget = async (e) => {
-    e.preventDefault();
-    if (!user) return;
-    setSaving(true);
-    try {
-      const formattedCategories = {};
-      categoriesList.forEach((cat) => {
-        formattedCategories[cat] = Number(categoriesBudget[cat]) || 0;
-      });
-
-      await saveMonthlyBudget(user.uid, {
-        plannedIncome: Number(plannedIncome) || 0,
-        categories: formattedCategories
-      });
-
-      if (refreshData) await refreshData();
-      alert("Orçamento planejado salvo com sucesso!");
-    } catch (err) {
-      alert("Erro ao salvar orçamento.");
-    } finally {
-      setSaving(false);
-    }
-  };
+  const [newExpenseName, setNewExpenseName] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseCategory, setNewExpenseCategory] = useState('Outros');
 
   const formatBRL = (v) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
-  // Calcular despesas reais do mês atual agrupadas por categoria a partir do histórico
-  const actualExpensesByCategory = categoriesList.reduce((acc, cat) => {
-    acc[cat] = 0;
-    return acc;
-  }, {});
+  // Somatório das despesas lançadas na lista
+  const totalExpensesFromList = expenseList.reduce((acc, item) => acc + (Number(item.amount) || 0), 0);
+  const monthlyCommitment = metrics?.monthlyCommitment || 0;
+  const availableIncome = (Number(income) || 0) - totalExpensesFromList - monthlyCommitment;
 
-  if (Array.isArray(history)) {
-    history.forEach((item) => {
-      if (item.action === 'DESPESA_ADICIONADA' && item.amount < 0) {
-        const catFound = categoriesList.find((c) =>
-          item.description?.toLowerCase().includes(c.toLowerCase())
-        );
-        const categoryKey = catFound || 'Outros';
-        if (actualExpensesByCategory[categoryKey] !== undefined) {
-          actualExpensesByCategory[categoryKey] += Math.abs(item.amount);
-        } else {
-          actualExpensesByCategory['Outros'] = (actualExpensesByCategory['Outros'] || 0) + Math.abs(item.amount);
-        }
-      }
+  // Adicionar nova despesa
+  const handleAddExpense = (e) => {
+    e.preventDefault();
+    if (!newExpenseName || !newExpenseAmount) return;
+
+    const newItem = {
+      id: Date.now(),
+      name: newExpenseName,
+      amount: Number(newExpenseAmount),
+      category: newExpenseCategory,
+    };
+
+    const updated = [...expenseList, newItem];
+    setExpenseList(updated);
+    setNewExpenseName('');
+    setNewExpenseAmount('');
+
+    // Salvar no Firestore
+    updateBudgetSettings({
+      income: Number(income),
+      expenses: updated.reduce((acc, item) => acc + item.amount, 0),
+      expenseList: updated,
     });
-  }
+  };
 
-  const totalPlannedExpenses = Object.values(categoriesBudget).reduce(
-    (acc, val) => acc + (Number(val) || 0),
-    0
-  );
-  const totalActualExpenses = Object.values(actualExpensesByCategory).reduce(
-    (acc, val) => acc + val,
-    0
-  );
+  // Remover despesa
+  const handleRemoveExpense = (id) => {
+    const updated = expenseList.filter((item) => item.id !== id);
+    setExpenseList(updated);
+
+    updateBudgetSettings({
+      income: Number(income),
+      expenses: updated.reduce((acc, item) => acc + item.amount, 0),
+      expenseList: updated,
+    });
+  };
+
+  // Atualizar Renda Total
+  const handleSaveIncome = (e) => {
+    e.preventDefault();
+    updateBudgetSettings({
+      income: Number(income),
+      expenses: totalExpensesFromList,
+      expenseList,
+    });
+    alert('Renda atualizada com sucesso!');
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-black text-gray-800">💰 Planejado vs. Realizado</h2>
-          <p className="text-sm text-gray-500">
-            Defina metas para cada categoria e acompanhe seu consumo real do mês
-          </p>
-        </div>
-        <Button onClick={() => setIsNewCategoryModalOpen(true)} variant="outline">
-          + Nova Categoria
-        </Button>
+    <div className="space-y-6 max-w-5xl">
+      <div>
+        <h2 className="text-2xl font-black text-gray-800">💰 Gestão de Orçamento & Despesas</h2>
+        <p className="text-sm text-gray-500">
+          Cadastre seus ganhos e despesas mensais para calcular a sobra real do seu orçamento
+        </p>
       </div>
 
-      {/* Resumo de Indicadores Totais */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <span className="text-xs font-semibold text-gray-400 uppercase">Renda Planejada vs Real</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-xl font-bold text-gray-800">{formatBRL(plannedIncome)}</span>
-            <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
-              Real: {formatBRL(metrics?.income)}
-            </span>
-          </div>
+      {/* RESUMO DE CÁLCULO GERAL */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
+          <span className="text-xs text-emerald-700 font-medium block">(+) Renda Total</span>
+          <strong className="text-xl font-black text-emerald-800">{formatBRL(income)}</strong>
         </div>
 
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <span className="text-xs font-semibold text-gray-400 uppercase">Teto de Despesas Planejado</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-xl font-bold text-gray-800">{formatBRL(totalPlannedExpenses)}</span>
-            <span
-              className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                totalActualExpenses > totalPlannedExpenses && totalPlannedExpenses > 0
-                  ? 'bg-red-50 text-red-600'
-                  : 'bg-emerald-50 text-emerald-600'
-              }`}
-            >
-              Real: {formatBRL(totalActualExpenses)}
-            </span>
-          </div>
+        <div className="p-4 bg-red-50 rounded-2xl border border-red-200">
+          <span className="text-xs text-red-700 font-medium block">(-) Despesas Lançadas</span>
+          <strong className="text-xl font-black text-red-800">{formatBRL(totalExpensesFromList)}</strong>
         </div>
 
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <span className="text-xs font-semibold text-gray-400 uppercase">Comprometimento de Dívidas</span>
-          <div className="mt-2 flex justify-between items-baseline">
-            <span className="text-xl font-bold text-indigo-600">
-              {formatBRL(metrics?.monthlyCommitment)}
-            </span>
-            <span className="text-xs text-gray-500">/mês fixo</span>
-          </div>
+        <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-200">
+          <span className="text-xs text-indigo-700 font-medium block">(-) Dívidas / Parcelas</span>
+          <strong className="text-xl font-black text-indigo-800">{formatBRL(monthlyCommitment)}</strong>
+        </div>
+
+        <div className={`p-4 rounded-2xl border ${availableIncome >= 0 ? 'bg-emerald-100 border-emerald-300' : 'bg-red-100 border-red-300'}`}>
+          <span className="text-xs font-bold block text-gray-700">(=) Dinheiro Disponível</span>
+          <strong className={`text-xl font-black ${availableIncome >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>
+            {formatBRL(availableIncome)}
+          </strong>
         </div>
       </div>
 
-      {/* Formulário de Planejamento e Progresso */}
-      <form onSubmit={handleSaveBudget} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-6">
-        <h3 className="text-lg font-bold text-gray-800 border-b pb-3">Definir Metas do Mês</h3>
-
-        <div className="max-w-md">
+      {/* FORMULÁRIO DE RENDA */}
+      <form onSubmit={handleSaveIncome} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs flex flex-col sm:flex-row items-end gap-4">
+        <div className="flex-1 w-full">
           <Input
-            label="Renda Mensal Prevista (R$)"
+            label="Renda Líquida Mensal (Salário + Renda Extra em R$)"
             type="number"
             step="0.01"
-            value={plannedIncome}
-            onChange={(e) => setPlannedIncome(e.target.value)}
-            placeholder="Ex: 4000.00"
-          />
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h4 className="text-sm font-bold text-gray-700">Teto por Categoria de Despesa</h4>
-            <button
-              type="button"
-              onClick={() => setIsNewCategoryModalOpen(true)}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold"
-            >
-              + Adicionar Categoria
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {categoriesList.map((cat) => {
-              const plannedVal = Number(categoriesBudget[cat]) || 0;
-              const actualVal = actualExpensesByCategory[cat] || 0;
-              const percent = plannedVal > 0 ? Math.min(100, Math.round((actualVal / plannedVal) * 100)) : 0;
-              const isOver = actualVal > plannedVal && plannedVal > 0;
-              const isCustom = !INITIAL_DEFAULT_CATEGORIES.includes(cat);
-
-              return (
-                <div key={cat} className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-2 relative group">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-sm text-gray-800 flex items-center gap-1.5">
-                      {cat}
-                      {isCustom && (
-                        <span className="text-[10px] bg-indigo-100 text-indigo-700 font-semibold px-1.5 py-0.5 rounded">
-                          Personalizada
-                        </span>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${isOver ? 'text-red-500' : 'text-gray-500'}`}>
-                        Gasto: {formatBRL(actualVal)}
-                      </span>
-                      {isCustom && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCategory(cat)}
-                          className="text-gray-400 hover:text-red-500 text-xs p-1"
-                          title="Remover Categoria"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={categoriesBudget[cat] || ''}
-                    onChange={(e) => setCategoriesBudget({ ...categoriesBudget, [cat]: e.target.value })}
-                    placeholder="Teto planejado R$"
-                    className="bg-white"
-                  />
-
-                  {/* Barra de Progresso do Teto */}
-                  {plannedVal > 0 && (
-                    <div className="space-y-1 pt-1">
-                      <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${isOver ? 'bg-red-500' : 'bg-emerald-500'}`}
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] text-gray-400">
-                        <span>{percent}% do teto utilizado</span>
-                        <span>Limite: {formatBRL(plannedVal)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex justify-end pt-4 border-t">
-          <Button type="submit" isLoading={saving}>
-            Salvar Orçamento Planejado
-          </Button>
-        </div>
-      </form>
-
-      {/* Modal para Adicionar Nova Categoria */}
-      <Modal
-        isOpen={isNewCategoryModalOpen}
-        onClose={() => setIsNewCategoryModalOpen(false)}
-        title="Nova Categoria de Despesa"
-      >
-        <form onSubmit={handleAddCategory} className="space-y-4">
-          <Input
-            label="Nome da Categoria"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            placeholder="Ex: Educação, Pets, Farmácia, Investimentos"
+            value={income}
+            onChange={(e) => setIncome(e.target.value)}
+            placeholder="Ex: 3500.00"
             required
           />
-          <div className="flex justify-end gap-3 pt-3 border-t">
-            <Button type="button" variant="outline" onClick={() => setIsNewCategoryModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit">Adicionar Categoria</Button>
+        </div>
+        <Button type="submit" variant="secondary">
+          Atualizar Renda
+        </Button>
+      </form>
+
+      {/* LANÇAMENTO DE NOVAS DESPESAS */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-xs space-y-4">
+        <h3 className="font-bold text-gray-800 text-base border-b pb-3">Lançar Nova Despesa do Mês</h3>
+
+        <form onSubmit={handleAddExpense} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+          <div className="sm:col-span-2">
+            <Input
+              label="Descrição da Despesa"
+              value={newExpenseName}
+              onChange={(e) => setNewExpenseName(e.target.value)}
+              placeholder="Ex: Supermercado, Luz, Internet"
+              required
+            />
           </div>
+
+          <Input
+            label="Valor (R$)"
+            type="number"
+            step="0.01"
+            value={newExpenseAmount}
+            onChange={(e) => setNewExpenseAmount(e.target.value)}
+            placeholder="0,00"
+            required
+          />
+
+          <Button type="submit" variant="primary" className="w-full">
+            + Adicionar
+          </Button>
         </form>
-      </Modal>
+      </div>
+
+      {/* LISTA DE DESPESAS CADASTRADAS */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-xs space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="font-bold text-gray-800 text-base">Relação de Despesas do Mês ({expenseList.length})</h3>
+          <span className="text-xs text-gray-500 font-semibold">Total: {formatBRL(totalExpensesFromList)}</span>
+        </div>
+
+        {expenseList.length > 0 ? (
+          <div className="divide-y divide-gray-100">
+            {expenseList.map((item) => (
+              <div key={item.id} className="py-3 flex justify-between items-center text-sm">
+                <div>
+                  <span className="font-bold text-gray-800 block">{item.name}</span>
+                  <span className="text-[10px] text-gray-400 uppercase font-semibold">{item.category || 'Geral'}</span>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <strong className="text-red-600 font-black">{formatBRL(item.amount)}</strong>
+                  <button
+                    onClick={() => handleRemoveExpense(item.id)}
+                    className="text-gray-400 hover:text-red-600 p-1 text-xs font-bold transition"
+                    title="Remover despesa"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 text-center py-6">
+            Nenhuma despesa lançada ainda. Adicione suas contas fixas acima.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
