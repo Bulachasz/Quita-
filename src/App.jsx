@@ -2,11 +2,10 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FinancialProvider } from './context/FinancialContext';
 
-// Layout e Modais com imports nomeados para alinhar com os exports
+// Layout
 import { Sidebar } from './components/layout/Sidebar';
 import { Navbar } from './components/layout/Navbar';
 import { MobileNav } from './components/layout/MobileNav';
-import { FastSimulationModal } from './components/simulations/FastSimulationModal';
 
 // Páginas
 import Dashboard from './pages/Dashboard';
@@ -20,17 +19,22 @@ import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import AuthPage from './pages/AuthPage';
 
+// Modais Globais
+import { FastSimulationModal } from './components/simulations/FastSimulationModal';
+
 function MainApp() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isFastSimOpen, setIsFastSimOpen] = useState(false);
+  const [isFastSimulateOpen, setIsFastSimulateOpen] = useState(false);
 
-  if (!user) return <AuthPage />;
+  if (!user) {
+    return <AuthPage />;
+  }
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard onNavigate={setActiveTab} />;
+        return <Dashboard setActiveTab={setActiveTab} />;
       case 'debts':
         return <DebtsPage />;
       case 'cards':
@@ -48,31 +52,37 @@ function MainApp() {
       case 'settings':
         return <SettingsPage />;
       default:
-        return <Dashboard onNavigate={setActiveTab} />;
+        return <Dashboard setActiveTab={setActiveTab} />;
     }
   };
 
   return (
     <FinancialProvider>
-      <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
-        {/* Menu Lateral para telas médias e grandes */}
+      <div className="flex min-h-screen bg-slate-50 font-sans text-gray-900">
+        {/* Menu Lateral Desktop */}
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-        
+
+        {/* Conteúdo Principal */}
         <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
-          {/* Barra Superior */}
-          <Navbar user={user} onLogout={logout} onFastSimulate={() => setIsFastSimOpen(true)} />
-          
-          {/* Conteúdo Principal */}
-          <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+          <Navbar
+            user={user}
+            onLogout={logout}
+            onFastSimulate={() => setIsFastSimulateOpen(true)}
+          />
+
+          <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto animate-fade-in">
             {renderContent()}
           </main>
         </div>
 
-        {/* Menu de Navegação Inferior para Celulares */}
+        {/* Navegação Inferior Mobile */}
         <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
-        
-        {/* Modal de Simulação Rápida */}
-        <FastSimulationModal isOpen={isFastSimOpen} onClose={() => setIsFastSimOpen(false)} />
+
+        {/* Modal Global de Simulação Rápida */}
+        <FastSimulationModal
+          isOpen={isFastSimulateOpen}
+          onClose={() => setIsFastSimulateOpen(false)}
+        />
       </div>
     </FinancialProvider>
   );
