@@ -8,7 +8,7 @@ import { Modal } from '../components/common/Modal';
 
 export default function CardsPage() {
   const { user } = useAuth();
-  const { cards, accounts, refreshData } = useFinancial();
+  const { cards = [], accounts = [], refreshData } = useFinancial();
   
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
@@ -36,11 +36,21 @@ export default function CardsPage() {
 
   // Formulário de Pagamento de Fatura
   const [payForm, setPayForm] = useState({
-    accountId: accounts[0]?.id || '',
+    accountId: '',
     amount: ''
   });
 
-  const formatBRL = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+  const formatBRL = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
+
+  // Abrir Modal de Pagamento garantindo conta padrão selecionada
+  const handleOpenPayModal = (card) => {
+    setSelectedCard(card);
+    setPayForm({
+      accountId: accounts.length > 0 ? accounts[0].id : '',
+      amount: card.currentInvoice || ''
+    });
+    setIsPayModalOpen(true);
+  };
 
   // Criar Cartão
   const handleCreateCard = async (e) => {
@@ -49,7 +59,7 @@ export default function CardsPage() {
     setLoading(true);
     try {
       await createCreditCard(user.uid, cardForm);
-      await refreshData();
+      if (refreshData) await refreshData();
       setIsCardModalOpen(false);
       setCardForm({ name: '', institution: 'Nubank', limit: '', closingDay: '1', dueDay: '10' });
     } catch (err) {
@@ -66,7 +76,7 @@ export default function CardsPage() {
     setLoading(true);
     try {
       await addCardPurchase(user.uid, selectedCard.id, purchaseForm);
-      await refreshData();
+      if (refreshData) await refreshData();
       setIsPurchaseModalOpen(false);
       setPurchaseForm({ description: '', amount: '', installments: '1', category: 'Compras', date: new Date().toISOString().split('T')[0] });
     } catch (err) {
@@ -79,13 +89,17 @@ export default function CardsPage() {
   // Pagar Fatura
   const handlePayInvoice = async (e) => {
     e.preventDefault();
-    if (!user || !selectedCard || !payForm.accountId) return;
+    if (!user || !selectedCard) return;
+    if (!payForm.accountId) {
+      alert('Selecione uma conta bancária para debitar.');
+      return;
+    }
     setLoading(true);
     try {
       await payCardInvoice(user.uid, selectedCard.id, payForm.accountId, payForm.amount);
-      await refreshData();
+      if (refreshData) await refreshData();
       setIsPayModalOpen(false);
-      setPayForm({ accountId: accounts[0]?.id || '', amount: '' });
+      setPayForm({ accountId: '', amount: '' });
     } catch (err) {
       alert(err.message || 'Erro ao pagar fatura.');
     } finally {
@@ -105,17 +119,20 @@ export default function CardsPage() {
 
       {/* Lista de Cartões */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {cards.length > 0 ? (
+        {cards && cards.length > 0 ? (
           cards.map((card) => {
-            const usedLimit = (card.limit || 0) - (card.availableLimit || 0);
-            const usedPercent = card.limit > 0 ? Math.round((usedLimit / card.limit) * 100) : 0;
+            const limit = Number(card?.limit) || 0;
+            const availableLimit = Number(card?.availableLimit) || 0;
+            const currentInvoice = Number(card?.currentInvoice) || 0;
+            const usedLimit = limit - availableLimit;
+            const usedPercent = limit > 0 ? Math.min(100, Math.round((usedLimit / limit) * 100)) : 0;
 
             return (
-              <div key={card.id} className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-xl border border-slate-800 space-y-4">
+              <div key={card.id || Math.random()} className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-xl border border-slate-800 space-y-4">
                 <div className="flex justify-between items-start">
                   <div>
-                    <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-widest">{card.institution}</span>
-                    <h4 className="text-lg font-bold mt-0.5">{card.name}</h4>
+                    <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-widest">{card.institution || 'Geral'}</span>
+                    <h4 className="text-lg font-bold mt-0.5">{card.name || 'Sem Nome'}</h4>
                   </div>
                   <span className="text-2xl">💳</span>
                 </div>
@@ -124,15 +141,15 @@ export default function CardsPage() {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between text-slate-300">
                     <span>Fatura Atual</span>
-                    <span className="font-bold text-red-400 text-sm">{formatBRL(card.currentInvoice)}</span>
+                    <span className="font-bold text-red-400 text-sm">{formatBRL(currentInvoice)}</span>
                   </div>
                   <div className="flex justify-between text-slate-400">
                     <span>Limite Disponível</span>
-                    <span className="font-bold text-emerald-400">{formatBRL(card.availableLimit)}</span>
+                    <span className="font-bold text-emerald-400">{formatBRL(availableLimit)}</span>
                   </div>
                   <div className="flex justify-between text-slate-400">
                     <span>Limite Total</span>
-                    <span>{formatBRL(card.limit)}</span>
+                    <span>{formatBRL(limit)}</span>
                   </div>
 
                   {/* Barra de Limite */}
@@ -153,7 +170,7 @@ export default function CardsPage() {
                     + Nova Compra
                   </button>
                   <button
-                    onClick={() => { setSelectedCard(card); setPayForm({ ...payForm, amount: card.currentInvoice }); setIsPayModalOpen(true); }}
+                    onClick={() => handleOpenPayModal(card)}
                     className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-lg transition"
                   >
                     Pagar Fatura
@@ -187,7 +204,7 @@ export default function CardsPage() {
       </Modal>
 
       {/* Modal Compra Parcelada */}
-      <Modal isOpen={isPurchaseModalOpen} onClose={() => setIsPurchaseModalOpen(false)} title={`Nova Compra - ${selectedCard?.name}`}>
+      <Modal isOpen={isPurchaseModalOpen} onClose={() => setIsPurchaseModalOpen(false)} title={`Nova Compra - ${selectedCard?.name || ''}`}>
         <form onSubmit={handleAddPurchase} className="space-y-4">
           <Input label="Descrição do Produto/Serviço" value={purchaseForm.description} onChange={(e) => setPurchaseForm({ ...purchaseForm, description: e.target.value })} placeholder="Ex: Smart TV, Supermercado" required />
           <Input label="Valor Total da Compra (R$)" type="number" step="0.01" value={purchaseForm.amount} onChange={(e) => setPurchaseForm({ ...purchaseForm, amount: e.target.value })} required />
@@ -201,7 +218,7 @@ export default function CardsPage() {
       </Modal>
 
       {/* Modal Pagamento de Fatura */}
-      <Modal isOpen={isPayModalOpen} onClose={() => setIsPayModalOpen(false)} title={`Pagar Fatura - ${selectedCard?.name}`}>
+      <Modal isOpen={isPayModalOpen} onClose={() => setIsPayModalOpen(false)} title={`Pagar Fatura - ${selectedCard?.name || ''}`}>
         <form onSubmit={handlePayInvoice} className="space-y-4">
           <Input label="Valor do Pagamento (R$)" type="number" step="0.01" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} required />
           <div>
@@ -212,9 +229,10 @@ export default function CardsPage() {
               className="w-full rounded-lg border border-gray-300 p-2.5 text-sm bg-white"
               required
             >
+              <option value="">Selecione uma conta...</option>
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
-                  {acc.name} (Saldo: R$ {(acc.currentBalance || 0).toFixed(2)})
+                  {acc.name} (Saldo: R$ {Number(acc.currentBalance || 0).toFixed(2)})
                 </option>
               ))}
             </select>
