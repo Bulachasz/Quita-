@@ -8,6 +8,7 @@ const menuItems = [
   { id: 'simulations', label: 'Simulador QUITA+', icon: '📊' },
   { id: 'calendar', label: 'Calendário', icon: '📅' },
   { id: 'reports', label: 'Relatórios', icon: '📈' },
+  { id: 'help', label: 'Como Usar / Tutorial', icon: '🎓' },
   { id: 'settings', label: 'Configurações', icon: '⚙️' },
 ];
 

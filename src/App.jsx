@@ -18,6 +18,7 @@ import ReportsPage from './pages/ReportsPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import AuthPage from './pages/AuthPage';
+import HelpPage from './pages/HelpPage';
 
 // Modais Globais
 import { FastSimulationModal } from './components/simulations/FastSimulationModal';
@@ -53,6 +54,8 @@ function MainApp() {
         return <SettingsPage />;
       default:
         return <Dashboard setActiveTab={setActiveTab} />;
+        case 'help':
+        return <HelpPage onNavigate={(tab) => setActiveTab(tab)} />;
     }
   };
 
