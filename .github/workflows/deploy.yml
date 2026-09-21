@@ -29,7 +29,6 @@ jobs:
           node-version: 18
 
       - name: Install dependencies and Build
-        working-directory: ./Quita+
         run: |
           npm install
           npm run build
@@ -40,7 +39,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './Quita+/dist'
+          path: './dist'
 
       - name: Deploy to GitHub Pages
         id: deployment
