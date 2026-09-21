@@ -29,8 +29,8 @@ jobs:
           node-version: 18
 
       - name: Install dependencies and Build
+        working-directory: ./Quita+
         run: |
-          cd Quita+
           npm install
           npm run build
 
