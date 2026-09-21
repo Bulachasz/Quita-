@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useFinancial } from '../context/FinancialContext';
 import { useSimulations } from '../hooks/useSimulations';
-import ScenarioComparison from '../components/simulations/ScenarioComparison';
+import ScenarioComparison from '../components/simulations/ScenarioComparison.jsx';
 import { Input } from '../components/common/Input';
 import { Button } from '../components/common/Button';
 
